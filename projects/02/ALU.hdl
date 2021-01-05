@@ -42,5 +42,36 @@ CHIP ALU {
         ng; // 1 if (out < 0),  0 otherwise
 
     PARTS:
-   // Put you code here:
+    // Not (in=zx, out=notzx);
+    // Not (in=zy, out=notzy);
+    // And16 (a=x, b[0..15]=notzx, out=x2);
+    // And16 (a=y, b[0..15]=notzy, out=y2);
+
+    // zx and zy
+    Mux16 (a=x, b[0..15]=false, sel=zx, out=x2);
+    Mux16 (a=y, b[0..15]=false, sel=zy, out=y2);
+
+    // nx and ny
+    Not16 (in=x2, out=notx2);
+    Not16 (in=y2, out=noty2);
+    Mux16 (a=x2, b=notx2, sel=nx, out=x3);
+    Mux16 (a=y2, b=noty2, sel=ny, out=y3);
+
+    // f=0 is x&y, f=1 is x+y
+    And16 (a=x3, b=y3, out=xAndy);
+    Add16 (a=x3, b=y3, out=xAddy);
+    Mux16 (a=xAndy, b=xAddy, sel=f, out=xfy);
+
+    // no=0 is xfy, no=1 is !xfy
+    Not16 (in=xfy, out=notxfy);
+    Mux16 (a=xfy, b=notxfy, sel=no, out=out, out[0..7]=out1, out[8..14]=out2, out[15]=out3);
+    
+    // zr Nor all 16 bits together
+    Or8Way (in=out1, out=zr1);
+    Or8Way (in[0..6]=out2, in[7]=out3, out=zr2);
+    Or (a=zr1, b=zr2, out=notzr);
+    Not (in=notzr, out=zr);
+
+    // ng take the value of the most significant bit to identify the sign
+    And (a=out3, b=out3, out=ng);
 }
