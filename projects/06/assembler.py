@@ -1,5 +1,7 @@
 import sys
 
+# C Instruction Look Up Tables
+
 COMP_COMMANDS = {
     "0": "0101010",
     "1": "0111111",
@@ -54,48 +56,38 @@ JUMP_COMMANDS = {
 }
 
 
-def check_args(args):
-    return (len(args) == 2 and args[1].split('.')[1] == 'asm')
+# Define Exceptions
+class Error(Exception):
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
 
-def get_args(args):
-    return args[1] if check_args(args) else None
+class AssemblerSyntaxError(Error):
+    """Incorrect syntax encountered when parsing assembly command"""
+    pass
 
-def parse_a_instruction(command):
-    value = 0
-    first_loop = True
-    for char in command:
-        if char == "@" and first_loop:
-            first_loop = False
-            continue
-        elif not first_loop and char.isdigit():
-            value += int(char)
-        else:
-            # report error, command doesn't start with @ or contains values that aren't integers
-            pass
+class ArgumentError(Error):
+    """Incorrect arguments encountered by the assembler tool"""
+    pass
 
-    fifteen = int('111111111111111', 2)
-    if value > fifteen:
-        value = fifteen
-    return "0" + format(value, 'b').zfill(15)
+
+# Define command parsing functions
 
 def get_c_instruction(dest_command, comp_command, jump_command):
     try:
         dest = DEST_COMMANDS[dest_command]
     except KeyError:
-        print(f'{dest_command} is invalid syntax for destination command')
-        dest = DEST_COMMANDS[""]
+        raise AssemblerSyntaxError(f"{dest_command} is invalid syntax for destination command")
 
     try:
         comp = COMP_COMMANDS[comp_command]
     except KeyError:
-        print(f'{comp_command} is invalid syntax for computation command')
-        comp = COMP_COMMANDS['1']
+        raise AssemblerSyntaxError(f"{comp_command} is invalid syntax for computation command")
 
     try:
         jump = JUMP_COMMANDS[jump_command]
     except KeyError:
-        print(f'{jump_command} is invalid syntax for jump command')
-        jump = JUMP_COMMANDS[""]
+        raise AssemblerSyntaxError(f"{jump_command} is invalid syntax for jump command")
 
     return f'111{comp}{dest}{jump}'
 
@@ -119,29 +111,136 @@ def parse_c_instruction(command):
 
     return get_c_instruction(dest_command, comp_command, jump_command)
 
-def parse_line(line):
-    for command in line.split():
-        if command == "//" or "":
-            return None
-        elif "@" in command:
-            return parse_a_instruction(command)
-        else:
-            return parse_c_instruction(command)
 
-def parse_file(input_file, output_file):
+def get_a_instruction_bitstring(value: int) -> str:
+    fifteen = int('111111111111111', 2)
+    if value > fifteen:
+        value = fifteen
+    return "0" + format(value, 'b').zfill(15)
+
+
+def parse_a_instruction(command: str, symbol_table: dict, variable_count: int):
+    if command in symbol_table:
+        # predefined symbols, labels and existing variable a instructions
+        value = symbol_table[command]
+    elif command.isdigit():
+        # integer a instructions
+        value = int(command)
+    else:
+        # new variable
+        value = 16 + variable_count
+        symbol_table[command] = value
+        variable_count += 1
+
+    return get_a_instruction_bitstring(value), symbol_table, variable_count
+
+
+def translate_commands(command_list, symbol_table, output_file):
+    variable_count = 0
+    for command in command_list:
+        if command.startswith("@"):
+            bitstring, symbol_table, variable_count = parse_a_instruction(
+                command.strip("@"), symbol_table, variable_count)
+        else:
+            bitstring = parse_c_instruction(command)
+        
+        output_file.write(f"\n{bitstring}")
+
+
+# Define assembler preprocessing functions
+
+# def resolve_variables(command_list, symbol_table)
+#     variable_count = 0
+#     for command in command_list:
+#         if command.startswith("@"):
+#             address = command.strip("@")
+#             if not instruction.isdigit() or address not in symbol_table:
+#                 # assign an address to the new variable in the symbol table
+#                 symbol_table[address] = 16 + variable_count
+#                 variable_count += 1
+# 
+#     return symbol_table
+
+
+def parse_lines(input_file, symbol_table):
+    command_list = []
+
     for line in input_file.readlines():
-        # if '//' in line.split():
-        #    continue
-        output = parse_line(line)
-        if output is not None:
-            output_file.write(f"\n{output}")
+
+        if line.split():
+            command = line.split()[0]
+        else:
+            continue
+
+        if command == "//" or "":
+            # Found a comment, don't parse beyond this point.
+            pass
+
+        elif command.startswith("@"):
+            command_list.append(command)
+
+        elif command.startswith("("):
+            symbol = command.strip("()")
+            if symbol in symbol_table:
+                # Syntax Error, need distinct symbols
+                raise AssemblerSyntaxError(f"Label symbol {symbol} has been previously defined")
+
+            # set the value of the symbol to be the current length of the command list
+            symbol_table[symbol] = len(command_list)
+        
+        else:
+            command_list.append(command)
+
+    return command_list, symbol_table
+            
+
+def initialise_symbol_table():
+    # Initialise symbol table with predefined symbols
+    symbol_table = {
+        "SCREEN": 16384,
+        "KBD": 24576,
+        "SP": 0,
+        "LCL": 1,
+        "ARG": 2,
+        "THIS":3,
+        "THAT":4
+    }
+
+    for i in range(16):
+        symbol_table[f"R{i}"] = i
+    
+    return symbol_table
+
+
+def parse_file(input_file):
+    symbol_table = initialise_symbol_table()
+
+    # extract each line in the file
+    command_list, symbol_table = parse_lines(input_file, symbol_table)
+
+#     # add variables to symbol table
+#     symbol_table = resolve_variables(command_list, symbol_table)
+
+    return command_list, symbol_table
+
+
+def check_args(args):
+    return (len(args) >= 2 and all([arg.split('.')[1] == 'asm' for arg in args[1:]]))
+
+
+def get_args(args):
+    return args[1:] if check_args(args) else None
 
 
 if __name__ == "__main__":
-    filename = get_args(sys.argv)
-    with open(filename, 'r') as input_file:
-        with open(f'{filename.split(".")[0]}.hack', 'w') as output_file:
-            parse_file(input_file, output_file)
+    files = get_args(sys.argv)
+    if files is None:
+        # argument exception, incorrect file extention or no file passed
+        raise ArgumentError("Invalid file given as argument")
 
-                  
-        
+    for filename in files:
+        with open(filename, 'r') as input_file:
+            command_list, symbol_table = parse_file(input_file)
+    
+        with open(f'{filename.split(".")[0]}.hack', 'w') as output_file:
+            translate_commands(command_list, symbol_table, output_file)
