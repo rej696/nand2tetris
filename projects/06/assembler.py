@@ -137,6 +137,7 @@ def parse_a_instruction(command: str, symbol_table: dict, variable_count: int):
 
 def translate_commands(command_list, symbol_table, output_file):
     variable_count = 0
+    first_flag = True
     for command in command_list:
         if command.startswith("@"):
             bitstring, symbol_table, variable_count = parse_a_instruction(
@@ -144,7 +145,13 @@ def translate_commands(command_list, symbol_table, output_file):
         else:
             bitstring = parse_c_instruction(command)
         
-        output_file.write(f"\n{bitstring}")
+        if not first_flag:
+            output_file.write("\n")
+        else:
+            first_flag = False
+
+        output_file.write(f"{bitstring}")
+
 
 
 # Define assembler preprocessing functions
